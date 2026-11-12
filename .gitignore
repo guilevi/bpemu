@@ -1,0 +1,18 @@
+# Build outputs
+build/
+bpemu
+bprun
+rename.h
+*.dSYM/
+*.wav
+
+# Firmware and images: APH's and RC Systems' copyrighted code, and the
+# machine's state.  Supplied locally, never committed.
+fw/
+re/*.bin
+cards/
+state/
+*.srec
+
+.DS_Store
+__pycache__/
