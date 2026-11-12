@@ -11,7 +11,27 @@ make            # builds bpemu, bprun, and a first card image
 ./bpemu         # the window: keys below, speech on the default audio device
 ```
 
-Needs SDL3, libmpg123 (`brew install sdl3 mpg123`), mtools and python3.
+Needs SDL3 and libmpg123 (`brew install sdl3 mpg123`).  The firmware goes in
+`fw/`: `bpfw._BB` and the update files `BPMsgs._BB`, `BPfwex._BB`,
+`Spanish.dix`, plus the RC8650 image as `fw/rc8650.srec` (or point
+`RC8650_FIRMWARE` at it).
+
+## Windows
+
+Same program, same keys.  To build it from a Mac (or Linux) with
+`x86_64-w64-mingw32-gcc`:
+
+```
+make windows    # fetches SDL3 and libmpg123 (tools/windeps.sh), builds dist/windows
+```
+
+`dist/windows` then holds `bpemu.exe`, `bprun.exe`, `bpcard.exe`,
+`SDL3.dll` and `libmpg123-0.dll`; copy the folder to the PC, add the `fw`
+folder next to the programs, and run `bpemu.exe`.  On first start it makes
+`cards\card.img` (with the update files from `fw`) and `state\flash.bin`
+next to itself.  On Windows itself, under MSYS2 (UCRT64:
+`pacman -S make mingw-w64-ucrt-x86_64-{gcc,SDL3,mpg123,pkgconf}`), plain
+`make` builds it the same way as on a Mac.
 
 ## Keys
 
@@ -33,7 +53,8 @@ Missing" on every key).  `make` creates `cards/card.img` holding
 installs them exactly as the real one does ("please wait while messages are
 updated … application done … Spanish done") and deletes them from the card.
 The flash is kept in `state/flash.bin`, so this happens once.  To redo it:
-`rm state/flash.bin cards/card.img && make`.
+`rm state/flash.bin cards/card.img && make` (or just start `bpemu`, which
+makes the card itself when there is none).
 
 Every power-on says "defaults restored" until the settings have been saved
 once: the firmware keeps them in RAM and writes them to the external flash
@@ -43,16 +64,19 @@ change.
 
 ## Putting books and audio on the card
 
-Drop files on the window, or give them with `-a` (both `bpemu` and
-`bprun`; `-D folder` puts them in a folder):
+Drop files on the window, paste them (copy them in Finder or Explorer,
+then Cmd+V, or Ctrl+V on Windows), or give them with `-a` (both `bpemu`
+and `bprun`; `-D folder` puts them in a folder).  Pasting text instead of
+files makes a book of that text.
 
 ```
 ./bpemu -a book.txt -a talk.mp3
 ```
 
-Text files become indexed books: `tools/bpindex.py` (a port of UBT, the Unix
-Book Transfer tool) writes `book.txt._DD`, the text reflowed one sentence
-per line, and `book.txt._IX`, the index; the format is in its docstring.
+Text files become indexed books, as UBT (the Unix Book Transfer tool)
+makes them: `book.txt._DD`, the text reflowed one sentence per line, and
+`book.txt._IX`, the index (the format is in `tools/bpindex.py`'s
+docstring; `card.c` does the same in C).
 Plain `.txt` copied as it is would be refused ("playing unfiltered files not
 supported").  Unlike UBT it never starts a line with a space (the firmware
 loses a line of its reading position on each, so pausing UBT books jumped
@@ -63,9 +87,20 @@ the real unit.
 A drop takes the card out, adds the files and power-cycles the Book Port:
 the firmware lists a card's files when it mounts it, at power-on (or at an
 auto-off that finds the card gone), so a running unit would not see them.
-`bprun -A t:file` does the same at t seconds.  The tools underneath:
-`tools/cardadd.py IMAGE [-d folder] FILE…` and
-`tools/mkcard.sh IMAGE [MB] [FILE…]` (a fresh card).
+`bprun -A t:file` does the same at t seconds.
+
+`bpcard` does it from the command line, with no other tools needed (the
+FAT16/FAT32 writing is `card.c`'s own):
+
+```
+bpcard new IMAGE [MB] [FILE…]         # a fresh card, MBR + FAT, default 128 MB
+bpcard add IMAGE [-d FOLDER] FILE…    # add books and audio
+bpcard index book.txt [OUTDIR]        # just write book.txt._DD/._IX
+```
+
+Names keep their case and length (long-name entries), and get a short
+name the firmware can find them by: it looks update files such as
+`BPMsgs._BB` up by their 8.3 name.
 
 ## The hardware, as found
 

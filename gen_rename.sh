@@ -7,7 +7,7 @@
 # the original names.
 set -e
 {
-  nm -g "$@" | awk 'NF >= 2 { print $NF }' | sed 's/^_//'
+  ${NM:-nm} -g "$@" | awk 'NF >= 2 { print $NF }' | sed 's/^_//'
   # mem.h's interface: bp_hw.c implements these instead of mem.c.
   for s in mem_get_qi mem_get_hi mem_get_psi mem_get_si mem_put_qi mem_put_hi \
            mem_put_psi mem_put_si mem_get_pc mem_put_blk mem_get_blk init_mem \
@@ -15,7 +15,7 @@ set -e
            m32c_sim_restore_console m32c_use_raw_console; do
     echo $s
   done
-} | grep -v -E '^_' \
+} | grep -E '^[A-Za-z][A-Za-z0-9_]*$' \
   | grep -v -x -E 'abort|exit|memset|memcpy|memmove|strcmp|strlen|puts|putchar|printf|fprintf|vfprintf|fflush|fputs|fputc|fwrite|malloc|calloc|free|sprintf|snprintf|bzero|abs|stderr|stdout|stack_chk_fail|stack_chk_guard|dyld_stub_binder|lround|sin|cos' \
   | sort -u \
   | {

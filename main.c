@@ -4,11 +4,16 @@
 	 [-a file]... [-D folder]
 
    -a puts files on the card before power-on (text files become indexed
-   books; see tools/cardadd.py), into folder -D if given.  Dropping files
-   on the window does the same while running: the card comes out, the
-   files go on, the card goes back and the Book Port restarts (it lists a
-   card's files when it powers on; settings not saved with D+E+F are lost,
-   as with a battery change).
+   books; see card.h), into folder -D if given.  Dropping files on the
+   window, or pasting them (Cmd+V on a Mac, Ctrl+V elsewhere, after
+   copying them in Finder or Explorer), does the same while running: the
+   card comes out, the files go on, the card goes back and the Book Port
+   restarts (it lists a card's files when it powers on; settings not saved
+   with D+E+F are lost, as with a battery change).  Pasted text, with no
+   files on the clipboard, becomes a book of its own.
+
+   With no card image, one is made: holding the firmware's update files
+   from fwdir if they are there, which a new Book Port installs.
 
    Keys, by position on a US layout (scancodes, so other layouts keep the
    same physical keys):
@@ -28,15 +33,104 @@
 #include <SDL3/SDL_main.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "board.h"
-#include "cardadd.h"
+#include "card.h"
 #include "bp.h"
 #include "cf.h"
 #include "norflash.h"
+#include "plat/clip.h"
 
-#define DEFAULT_SREC "fw/rc8650.srec"
+#ifdef _WIN32
+#include <direct.h>
+#define make_dir(p) _mkdir (p)
+#else
+#define make_dir(p) mkdir (p, 0777)
+#endif
+
+static void release_all (void);
+
+static int
+exists (const char *path)
+{
+  struct stat st;
+  return stat (path, &st) == 0;
+}
+
+/* Make the folder a path is in.  */
+static void
+make_parent (const char *path)
+{
+  char d[1024];
+  snprintf (d, sizeof d, "%s", path);
+  char *slash = strrchr (d, '/');
+  if (slash)
+    {
+      *slash = 0;
+      if (!exists (d))
+	make_dir (d);
+    }
+}
+
+/* A first card: the update files a new Book Port installs, if present.  */
+static int
+first_card (const char *card, const char *fwdir)
+{
+  static const char *const upd[] = { "BPMsgs._BB", "BPfwex._BB", "Spanish.dix" };
+  char paths[3][1024];
+  const char *have[3];
+  int n = 0;
+  make_parent (card);
+  if (card_create (card, 128))
+    return -1;
+  for (int i = 0; i < 3; i++)
+    {
+      snprintf (paths[i], sizeof paths[i], "%s/%s", fwdir, upd[i]);
+      if (exists (paths[i]))
+	have[n++] = paths[i];
+    }
+  return n ? card_add (card, NULL, n, have) : 0;
+}
+
+static void
+fatal (const char *msg)
+{
+  fprintf (stderr, "bpemu: %s\n", msg);
+  SDL_ShowSimpleMessageBox (SDL_MESSAGEBOX_ERROR, "Book Port", msg, NULL);
+}
+
+/* Swap the card for one with these files (or this text, as a book) on it,
+   and power-cycle the Book Port so it lists them.  */
+static void
+change_card (const char *card, const char *folder, int n,
+	     const char *const *files, const char *text)
+{
+  release_all ();
+  cf_eject ();
+  int r = 0;
+  if (!exists (card))
+    {
+      make_parent (card);
+      r = card_create (card, 128);
+    }
+  if (!r && n)
+    r = card_add (card, folder, n, files);
+  if (!r && text)
+    {
+      char name[64];
+      time_t t = time (NULL);
+      strftime (name, sizeof name, "Pasted %Y-%m-%d %H%M%S.txt", localtime (&t));
+      r = card_add_data (card, folder, name, text, strlen (text));
+    }
+  if (r)
+    fatal ("Could not put the files on the card.");
+  if (cf_insert (card) == 0)
+    board_reset ();
+}
 
 static const struct
 {
@@ -75,9 +169,6 @@ main (int argc, char **argv)
   const char *adds[64];
   int c, nadd = 0;
 
-  if (!srec)
-    srec = DEFAULT_SREC;
-  card_tools_init (argv[0]);
   while ((c = getopt (argc, argv, "f:r:c:F:a:D:")) != -1)
     switch (c)
       {
@@ -93,17 +184,30 @@ main (int argc, char **argv)
 	return 2;
       }
 
+  if (!srec)
+    srec = board_find_srec (fwdir);
+  make_parent (flash);
   if (nor_open (flash) < 0)
-    return 1;
+    {
+      fatal ("Cannot open the flash image.");
+      return 1;
+    }
+  if (!exists (card) && first_card (card, fwdir) < 0)
+    fatal ("Cannot make a card image.");
   if (nadd && card_add (card, folder, nadd, adds) < 0)
     {
       fprintf (stderr, "bpemu: could not add files to %s\n", card);
       return 1;
     }
-  if (access (card, F_OK) == 0 && cf_insert (card) < 0)
+  if (exists (card) && cf_insert (card) < 0)
     return 1;
   if (board_init (fwdir, srec) < 0)
-    return 1;
+    {
+      fatal ("Cannot start: the Book Port firmware (bpfw._BB in the fw"
+	     " folder) or the RC8650 image (rc8650.srec, or set"
+	     " RC8650_FIRMWARE) is missing.");
+      return 1;
+    }
 
   if (!SDL_Init (SDL_INIT_VIDEO | SDL_INIT_AUDIO))
     {
@@ -157,6 +261,30 @@ main (int argc, char **argv)
 		}
 	      if (ev.key.repeat)
 		break;
+	      /* Paste: files copied in Finder or Explorer, or else text.  */
+#ifdef __APPLE__
+	      const SDL_Keymod paste_mod = SDL_KMOD_GUI;
+#else
+	      const SDL_Keymod paste_mod = SDL_KMOD_CTRL;
+#endif
+	      if (ev.type == SDL_EVENT_KEY_DOWN && ev.key.key == SDLK_V
+		  && (ev.key.mod & paste_mod))
+		{
+		  char **files;
+		  int n = clip_files (&files);
+		  if (n)
+		    change_card (card, folder, n, (const char *const *) files, NULL);
+		  else if (SDL_HasClipboardText ())
+		    {
+		      char *t = SDL_GetClipboardText ();
+		      if (t && *t)
+			change_card (card, folder, 0, NULL, t);
+		      SDL_free (t);
+		    }
+		  clip_free (files, n);
+		  last = SDL_GetTicksNS ();
+		  break;
+		}
 	      int k = lookup (ev.key.scancode);
 	      if (k >= 0)
 		bp_set_key (k, ev.type == SDL_EVENT_KEY_DOWN);
@@ -172,15 +300,10 @@ main (int argc, char **argv)
 	  case SDL_EVENT_DROP_COMPLETE:
 	    if (!ndrop)
 	      break;
-	    release_all ();
-	    cf_eject ();
-	    if (card_add (card, folder, ndrop, (const char *const *) dropped) < 0)
-	      fprintf (stderr, "bpemu: could not add the dropped files\n");
+	    change_card (card, folder, ndrop, (const char *const *) dropped, NULL);
 	    for (int i = 0; i < ndrop; i++)
 	      SDL_free (dropped[i]);
 	    ndrop = 0;
-	    if (cf_insert (card) == 0)
-	      board_reset ();
 	    last = SDL_GetTicksNS ();
 	    break;
 	  }

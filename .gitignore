@@ -2,6 +2,7 @@
 build/
 bpemu
 bprun
+bpcard
 rename.h
 *.dSYM/
 *.wav
@@ -16,3 +17,7 @@ state/
 
 .DS_Store
 __pycache__/
+deps/
+dist/
+build-win/
+*.exe

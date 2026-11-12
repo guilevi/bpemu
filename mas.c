@@ -44,6 +44,8 @@ static int started;
 
 int mas_log = 0;
 static unsigned long mas_bytes_in, out_count, played;
+static unsigned chunk;		/* bytes taken since demand last rose */
+static int demand;
 
 static size_t
 fifo_fill (void)
@@ -89,6 +91,8 @@ void
 mas_reset (void)
 {
   fhead = ftail = 0;
+  demand = 0;
+  chunk = 0;
   pcm_n = pcm_pos = 0;
   phase = 0;
   started = 0;
@@ -102,6 +106,7 @@ mas_put (uint8_t b)
     return;			/* overrun: the real chip would drop it too */
   static unsigned long total;
   mas_bytes_in++;
+  chunk++;
   fifo[fhead] = b;
   fhead = (fhead + 1) % FIFO_CAP;
   if (!started && mas_log)
@@ -109,10 +114,27 @@ mas_put (uint8_t b)
   started = 1;
 }
 
+/* The line rises while the input buffer is low and drops once a chunk of
+   DEMAND_BELOW bytes has come in (or the buffer is full again), so every
+   chunk the firmware sends ends on a falling edge and the next request is
+   a fresh rising one: its pump only restarts on an edge.  Without the
+   chunk limit, a decoder that swallows bytes while it looks for a frame
+   (as when playback resumes mid-file) would hold the line high and the
+   pump would never run again.  */
 int
 mas_demand (void)
 {
-  return fifo_fill () < DEMAND_BELOW;
+  if (demand)
+    {
+      if (fifo_fill () >= DEMAND_BELOW || chunk >= DEMAND_BELOW)
+	demand = 0;
+    }
+  else if (fifo_fill () < DEMAND_BELOW)
+    {
+      demand = 1;
+      chunk = 0;
+    }
+  return demand;
 }
 
 void

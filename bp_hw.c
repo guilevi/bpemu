@@ -9,7 +9,7 @@
    Register addresses are from the M30245 Group hardware manual
    (REJ03B0005-0200), SFR map tables 1.6-1.13.  */
 
-#include "rename.h"
+/* Built with -include $(B)/rename.h (see the Makefile).  */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -352,6 +352,10 @@ i2c_mode (void)
 static uint8_t rtc_reg[64];
 static int rtc_ptr, rtc_ptr_set;
 static long long rtc_base;	/* epoch seconds at cycle 0 */
+
+#ifdef _WIN32
+#define localtime_r(t, tm) localtime_s (tm, t)
+#endif
 
 static int bcd (int v) { return (v / 10) << 4 | (v % 10); }
 static int unbcd (int v) { return (v >> 4) * 10 + (v & 15); }

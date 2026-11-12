@@ -4,7 +4,7 @@
 	 [-c card.img] [-a file]... [-D folder] [-A t:file]... [-k keys]
 
    -a adds a file to the card before power-on (text files become indexed
-   books, see tools/cardadd.py), into -D's folder if given.  -A t:file
+   books, see card.h), into -D's folder if given.  -A t:file
    takes the card out at t seconds, adds the file, puts it back a second
    later and power-cycles the Book Port, as dropping a file on bpemu's
    window does (the firmware lists a card's files when it mounts it, at
@@ -20,12 +20,11 @@
 #include <unistd.h>
 
 #include "board.h"
-#include "cardadd.h"
+#include "card.h"
 #include "bp.h"
 #include "cf.h"
 #include "norflash.h"
 
-#define DEFAULT_SREC "fw/rc8650.srec"
 
 static void
 put32 (FILE *f, uint32_t v)
@@ -46,13 +45,10 @@ main (int argc, char **argv)
   const char *fwdir = "fw", *srec = getenv ("RC8650_FIRMWARE"), *wav = NULL;
   int c;
 
-  if (!srec)
-    srec = DEFAULT_SREC;
   const char *dump = NULL, *card = NULL, *keyscript = NULL;
   const char *flashfile = "state/flash.bin", *folder = NULL;
   const char *adds[64], *hot[64];
   int nadd = 0, nhot = 0;
-  card_tools_init (argv[0]);
   while ((c = getopt (argc, argv, "l:s:o:f:r:d:c:Ck:F:Na:A:D:")) != -1)
     switch (c)
       {
@@ -78,6 +74,8 @@ main (int argc, char **argv)
 	return 2;
       }
 
+  if (!srec)
+    srec = board_find_srec (fwdir);
   board_echo_tx = 1;
   if (nor_open (flashfile) < 0)
     return 1;
