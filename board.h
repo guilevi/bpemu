@@ -6,8 +6,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Where the RC8650 image is when RC8650_FIRMWARE does not say:
-   fwdir/rc8650.srec, else the doubletalk work's copy.  */
+/* Where the RC8650 image is when neither -r nor RC8650_FIRMWARE says:
+   fwdir/rc8650.srec.  */
 const char *board_find_srec (const char *fwdir);
 
 /* Boot both chips.  fwdir holds bpfw._BB; srec is the RC8650 image.  */

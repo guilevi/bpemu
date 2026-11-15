@@ -1,3 +1,5 @@
+"""xref.py DUMP STRING... -- where each string sits in a dump of the
+internal flash (loaded at 0xE0000), and where its address appears."""
 import sys,re
 d=open(sys.argv[1],'rb').read(); base=0xe0000
 for s in sys.argv[2:]:

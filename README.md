@@ -1,20 +1,53 @@
 # bpemu — an APH Book Port emulator
 
-Runs the Book Port's own firmware (2.3, from `bpx_setup/bpx._zz`) on an
-emulated Renesas M30245, with its DoubleTalk RC8650 speech chip emulated by
-librc8650 running the chip's own firmware.  Both CPUs are GDB's m32c
-simulator core as patched in the doubletalk work.
+Runs the Book Port's own firmware (2.3) on an emulated Renesas M30245, with
+its DoubleTalk RC8650 speech chip emulated by
+[librc8650](https://github.com/guilevi/librc8650) running the chip's own
+firmware.  Both CPUs are GDB's m32c simulator core, patched as librc8650
+patches it.
+
+
+## LLM disclaimer
+
+All of the code here is written by an LLM. To be honest, most of the documentation is as well. I'm posting these projects publicly for the purposes of preservation, archival and whatever else people might want to do with it. Emulation is a sort of byproduct of my interest in learning how these devices worked internally and I'm frankly not super invested in polishing the emulation experience for myself. This is not to say I won't take issues or PRs seriously, but I don't tend to spend more time in these programs than it takes to test them.
+
+## Prebuilt
+
+[Releases](https://github.com/guilevi/bpemu/releases) have builds for macOS
+(11 and later, Apple Silicon and Intel) and Windows (64-bit).  Unzip, put
+the `fw` folder (below) next to the programs, and run `bpemu`.  The Mac
+build is not notarized, so first clear the download's quarantine:
+`xattr -dr com.apple.quarantine bpemu-mac`.
+
+## Building
 
 ```
-git submodule update --init   # fetch librc8650
-make            # builds bpemu, bprun, and a first card image
-./bpemu         # the window: keys below, speech on the default audio device
+git clone --recursive https://github.com/guilevi/bpemu.git
+make            # bpemu (the window), bprun (headless), bpcard (card images)
+./bpemu
 ```
 
-Needs SDL3 and libmpg123 (`brew install sdl3 mpg123`).  The firmware goes in
-`fw/`: `bpfw._BB` and the update files `BPMsgs._BB`, `BPfwex._BB`,
-`Spanish.dix`, plus the RC8650 image as `fw/rc8650.srec` (or point
-`RC8650_FIRMWARE` at it).
+Needs a C compiler, SDL3 and libmpg123, found through `pkg-config`:
+
+- macOS: `brew install sdl3 mpg123 pkgconf`
+- Debian/Ubuntu: `apt install build-essential pkg-config libsdl3-dev libmpg123-dev`
+- Windows: see below.
+
+`make mac` makes the self-contained universal build in `dist/mac`
+(`tools/macdeps.sh` fetches SDL3's framework and builds libmpg123; no
+Homebrew needed).  In a clone made without `--recursive`, run
+`git submodule update --init` first.
+
+## Firmware
+
+Not included. The BookPort's is APH's and the DoubleTalk's is RC Systems'.  Put in `fw/`:
+
+- `bpfw._BB` — the Book Port firmware, and its update files `BPMsgs._BB`,
+  `BPfwex._BB`, `Spanish.dix`, all from APH's Book Port 2.3 updater
+  (`bpx._zz` in `bpx_setup`; the update files' names may be in any case);
+- `rc8650.srec` — the RC8650's image (librc8650's
+  `tools/rcstudio2srec.py` makes one from RCStudio's files), or point
+  `-r` or `RC8650_FIRMWARE` at it.
 
 ## Windows
 
@@ -42,19 +75,18 @@ By physical position (scancodes), so any keyboard layout works:
 | `1 2 3` / `q w e` / `a s d` / `z x c` | `1 2 3` / `4 5 6` / `7 8 9` / `* 0 #` |
 | `4 5 6` / `r t y` | `A B C` / `D E F` |
 
-Hold several at once for chord commands (A+C version, D+F battery,
+Press several at once for chord commands (A+C version, D+F battery,
 2+B reset, …).  Escape quits.
 
 ## First run
 
 The external flash starts erased, so the firmware has no application ("application
-Missing" on every key).  `make` creates `cards/card.img` holding
-`BPMsgs._BB`, `BPfwex._BB` and `Spanish.dix`; at power-on the Book Port
+Missing" on every key).  When there is no `cards/card.img`, `bpemu` makes
+one holding `BPMsgs._BB`, `BPfwex._BB` and `Spanish.dix`; at power-on the Book Port
 installs them exactly as the real one does ("please wait while messages are
 updated … application done … Spanish done") and deletes them from the card.
 The flash is kept in `state/flash.bin`, so this happens once.  To redo it:
-`rm state/flash.bin cards/card.img && make` (or just start `bpemu`, which
-makes the card itself when there is none).
+`rm state/flash.bin cards/card.img` and start `bpemu` again.
 
 Every power-on says "defaults restored" until the settings have been saved
 once: the firmware keeps them in RAM and writes them to the external flash
@@ -150,12 +182,16 @@ Environment: `BP_TIME=epoch` pins the RTC (reproducible runs),
 `BP_PINS=port:mask:value` forces input pins.  `-l` takes a mask from `bp.h`
 (SFR, external bus, interrupts, UART/I2C, PC samples, full trace).
 
-`vendor/librc8650` is a git submodule (github.com/guilevi/librc8650);
-after cloning run `git submodule update --init`.  `vendor/gdb-sim-m32c` is a
-pristine copy of `gdb-14.2/sim/m32c`; `make` copies it to `build/sim/m32c`
-and applies the submodule's `sim/rc865x-sim.patch`, so the core always
-matches the librc8650 revision checked out.  To move to a newer librc8650:
-`git -C vendor/librc8650 pull && make && git add vendor/librc8650`.  GPL-3.
+## Source layout
+
+`vendor/librc8650` is a git submodule.  `vendor/gdb-sim-m32c` is a pristine
+copy of `gdb-14.2/sim/m32c`; `make` copies it to `build/sim/m32c` and
+applies the submodule's `sim/rc865x-sim.patch`, so the core always matches
+the librc8650 revision checked out.  To move to a newer librc8650:
+`git -C vendor/librc8650 pull && make && git add vendor/librc8650`.
+`tools/bpindex.py` is the book indexer in Python, `re/xref.py` a helper
+for finding string references in a firmware dump.  `make clean` removes
+everything built.  GPL-3.
 
 ## Audio
 

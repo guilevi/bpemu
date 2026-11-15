@@ -169,13 +169,7 @@ board_find_srec (const char *fwdir)
 {
   static char path[1024];
   snprintf (path, sizeof path, "%s/rc8650.srec", fwdir);
-  FILE *f = fopen (path, "rb");
-  if (f)
-    {
-      fclose (f);
-      return path;
-    }
-  return "fw/rc8650.srec";
+  return path;
 }
 
 int

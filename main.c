@@ -34,6 +34,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dirent.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -76,6 +78,24 @@ make_parent (const char *path)
     }
 }
 
+/* dir/name, matching name in any case (installers vary; Linux cares).  */
+static int
+find_nocase (char *out, size_t n, const char *dir, const char *name)
+{
+  DIR *d = opendir (dir);
+  struct dirent *e;
+  int found = 0;
+  while (d && !found && (e = readdir (d)))
+    if (!strcasecmp (e->d_name, name))
+      {
+	snprintf (out, n, "%s/%s", dir, e->d_name);
+	found = 1;
+      }
+  if (d)
+    closedir (d);
+  return found;
+}
+
 /* A first card: the update files a new Book Port installs, if present.  */
 static int
 first_card (const char *card, const char *fwdir)
@@ -89,8 +109,7 @@ first_card (const char *card, const char *fwdir)
     return -1;
   for (int i = 0; i < 3; i++)
     {
-      snprintf (paths[i], sizeof paths[i], "%s/%s", fwdir, upd[i]);
-      if (exists (paths[i]))
+      if (find_nocase (paths[i], sizeof paths[i], fwdir, upd[i]))
 	have[n++] = paths[i];
     }
   return n ? card_add (card, NULL, n, have) : 0;
@@ -184,6 +203,11 @@ main (int argc, char **argv)
 	return 2;
       }
 
+  /* Started from Finder or Explorer, the working folder may not be the
+     program's: then fw, cards and state are the ones next to it.  */
+  const char *base;
+  if (!exists (fwdir) && (base = SDL_GetBasePath ()) && chdir (base) == 0)
+    fprintf (stderr, "bpemu: working in %s\n", base);
   if (!srec)
     srec = board_find_srec (fwdir);
   make_parent (flash);

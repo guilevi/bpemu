@@ -18,6 +18,13 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/stat.h>
+#ifdef _WIN32
+#include <direct.h>
+#define make_dir(p) _mkdir (p)
+#else
+#define make_dir(p) mkdir (p, 0777)
+#endif
 #include <string.h>
 
 #include "norflash.h"
@@ -67,6 +74,14 @@ nor_open (const char *path)
   backing = fopen (path, "r+b");
   if (!backing)
     {
+      char dir[1024];		/* its folders, e.g. state/, if new */
+      snprintf (dir, sizeof dir, "%s", path);
+      for (char *s = strchr (dir + 1, '/'); s; s = strchr (s + 1, '/'))
+	{
+	  *s = 0;
+	  make_dir (dir);
+	  *s = '/';
+	}
       backing = fopen (path, "w+b");
       if (!backing)
 	{

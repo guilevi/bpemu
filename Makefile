@@ -1,7 +1,7 @@
 # Book Port emulator.
 #
 # Two Renesas M16C CPUs run in one process, both on GDB's m32c simulator as
-# patched in the doubletalk work: $(B)/sim/m32c is the pristine gdb-14.2
+# patched for librc8650: $(B)/sim/m32c is the pristine gdb-14.2
 # sim/m32c in vendor/gdb-sim-m32c with the librc8650 submodule's
 # sim/rc865x-sim.patch applied, so the core always matches the library:
 #
@@ -14,6 +14,8 @@
 # make windows    cross-build for Windows from here, into dist/windows
 #                 (needs x86_64-w64-mingw32-gcc; tools/windeps.sh fetches
 #                 SDL3 and libmpg123 for it)
+# make mac        a self-contained universal macOS build, into dist/mac
+#                 (tools/macdeps.sh fetches SDL3's framework, builds mpg123)
 
 GDBSIM  := vendor/gdb-sim-m32c
 LIBRC   := vendor/librc8650
@@ -36,6 +38,18 @@ ifeq ($(WIN),1)
   SDL_LIBS   := -L$(WDEPS)/SDL3/lib -lSDL3
   MPG_CFLAGS := -I$(WDEPS)/mpg123
   MPG_LIBS   := $(WDEPS)/mpg123/libmpg123-0.dll
+else ifeq ($(MAC),1)
+  # Universal, macOS 11 and later, bundling SDL3.framework.
+  B       := build-mac
+  OUT     := dist/mac/
+  MDEPS   := deps/mac
+  ARCHS   := -arch arm64 -arch x86_64 -mmacosx-version-min=11.0
+  CC      := cc $(ARCHS)
+  NM      := nm
+  SDL_CFLAGS := -F$(MDEPS)
+  SDL_LIBS   := -F$(MDEPS) -framework SDL3 -Wl,-rpath,@executable_path
+  MPG_CFLAGS := -I$(MDEPS)/mpg123/include
+  MPG_LIBS   := $(MDEPS)/mpg123/lib/libmpg123.a
 else
   B       := build
   OUT     :=
@@ -52,6 +66,10 @@ else
   else
     PLAT := unix
   endif
+endif
+
+ifeq ($(MAC),1)
+  PLAT := mac
 endif
 
 ifeq ($(PLAT),win)
@@ -85,26 +103,23 @@ BPOBJ   := $(addprefix $(B)/bp_,$(addsuffix .o,$(CORE) r8c)) $(B)/bp_hw.o \
            $(B)/cf.o $(B)/norflash.o
 PROGS   := $(OUT)bprun$(EXE) $(OUT)bpemu$(EXE) $(OUT)bpcard$(EXE)
 
-.PHONY: all clean windows
+.PHONY: all clean windows mac
 ifeq ($(WIN),1)
 all: $(PROGS) $(OUT)SDL3.dll $(OUT)libmpg123-0.dll
+else ifeq ($(MAC),1)
+all: $(PROGS) $(OUT)SDL3.framework
+	codesign -f -s - $(PROGS)
 else
-all: $(PROGS) cards/card.img state
+all: $(PROGS)
 endif
 
 windows:
 	@test -d deps/windows || sh tools/windeps.sh
 	$(MAKE) WIN=1
+mac:
+	@test -d deps/mac/mpg123 || sh tools/macdeps.sh
+	$(MAKE) MAC=1
 
-# A card to start from: the firmware's update files, which a Book Port with
-# an empty external flash installs at power-on (and then deletes).  (bpemu
-# also makes this card itself when it finds none.)
-UPDATE := fw/BPMsgs._BB fw/BPfwex._BB fw/Spanish.dix
-cards/card.img: | $(UPDATE) bpcard$(EXE)
-	@mkdir -p cards
-	./bpcard$(EXE) new $@ 128 $(UPDATE)
-state:
-	@mkdir -p $@
 
 $(B) $(GEN):
 	@mkdir -p $@
@@ -115,6 +130,8 @@ $(OUT)SDL3.dll: | $(OUT)
 	cp $(WDEPS)/SDL3/bin/SDL3.dll $@
 $(OUT)libmpg123-0.dll: | $(OUT)
 	cp $(WDEPS)/mpg123/libmpg123-0.dll $@
+$(OUT)SDL3.framework: | $(OUT)
+	rm -rf $@ && ditto $(MDEPS)/SDL3.framework $@
 endif
 
 $(LIBRC)/rc8650.c $(LIBRC)/sim/rc865x-sim.patch:
@@ -187,4 +204,4 @@ $(OUT)bpcard$(EXE): $(B)/bpcard.o $(B)/card.o | $(OUT)
 	$(CC) $(CFLAGS) -o $@ $^
 
 clean:
-	rm -rf build build-win dist bprun bpemu bpcard rename.h
+	rm -rf build build-win build-mac dist bprun bpemu bpcard rename.h
